@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Футбольный опросник</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <!-- Подключаем VK ID SDK -->
     <script src="https://unpkg.com/@vkid/sdk@<3.0.0/dist-sdk/umd/index.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -47,8 +46,8 @@
         .dev-mode { background: #fef9c3; border: 2px dashed #eab308; border-radius: 12px; padding: 16px; margin-bottom: 20px; }
         .dev-mode label { display: block; margin-bottom: 8px; font-weight: 600; color: #854d0e; }
         .dev-mode input { padding: 8px 12px; border-radius: 8px; border: 1px solid #eab308; font-size: 14px; width: 200px; }
-        .vk-button-wrapper { display: inline-block; }
-        .vk-button-wrapper iframe { border: none; }
+        .vk-button-container { min-height: 50px; display: flex; justify-content: center; align-items: center; }
+        .vk-button-container iframe { border: none; }
         @media (max-width: 500px) { .container { padding: 20px; } .poll-item .day { min-width: 70px; } .stats-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -61,12 +60,10 @@
             <div class="subtitle">Выбери дни, когда сможешь играть</div>
         </div>
         <div id="authButtons">
-            <!-- Сюда будет вставлена кнопка One Tap -->
-            <div id="vkOneTapContainer"></div>
+            <div class="vk-button-container" id="vkOneTapContainer"></div>
         </div>
     </div>
 
-    <!-- Режим разработчика -->
     <div class="dev-mode" id="devMode">
         <label>🧪 Режим разработчика (для тестирования без ВК)</label>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
@@ -106,7 +103,7 @@
     <div id="unauthSection">
         <div class="auth-section">
             <p style="font-size:18px;color:#475569;">👋 Войдите через ВК, чтобы участвовать в опросе</p>
-            <div id="vkOneTapContainerCenter"></div>
+            <div class="vk-button-container" id="vkOneTapContainerCenter"></div>
         </div>
     </div>
 </div>
@@ -118,10 +115,8 @@
     'use strict';
 
     // ===== КОНФИГ =====
-    // Ваши данные из панели VK ID (подставьте свои)
-    const VK_APP_ID = 54715256; // 👈 Сюда ваш ID приложения
+    const VK_APP_ID = 54715256; // 👈 ВАШ ID
     const REDIRECT_URI = window.location.origin + window.location.pathname;
-    const VK_AUTH_URL = `https://oauth.vk.com/authorize?client_id=${VK_APP_ID}&display=page&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=friends&response_type=token&v=5.131`;
 
     const DAYS = [
         { id: 'mon', label: 'Понедельник', date: '10 июня' },
@@ -133,11 +128,11 @@
         { id: 'sun', label: 'Воскресенье', date: '16 июня' },
     ];
 
-    // ===== СОСТОЯНИЕ =====
     let currentUser = null;
     let myVotes = {};
     let chartInstance = null;
-    let vkOneTapInstance = null;
+    let oneTapInstance = null;
+    let oneTapCenterInstance = null;
 
     const $ = (sel) => document.querySelector(sel);
     const pollGrid = $('#pollGrid');
@@ -190,6 +185,7 @@
     function clearAllData() {
         localStorage.removeItem('football_votes_all');
         localStorage.removeItem('football_users');
+        localStorage.removeItem('football_current_user');
         myVotes = {};
         renderAll();
         showToast('Все данные очищены');
@@ -202,14 +198,15 @@
         toastTimer = setTimeout(() => toast.classList.remove('show'), 2500);
     }
 
-    // ===== ИНИЦИАЛИЗАЦИЯ VK ONE TAP =====
-    function initVKOneTap() {
-        try {
-            if (!window.VKIDSDK) {
-                console.warn('VKIDSDK не загружен');
-                return;
-            }
+    // ===== ИНИЦИАЛИЗАЦИЯ КНОПКИ VK =====
+    function renderVKButtons() {
+        if (!window.VKIDSDK) {
+            console.warn('VKIDSDK не загружен, повторная попытка через 1с');
+            setTimeout(renderVKButtons, 1000);
+            return;
+        }
 
+        try {
             const VKID = window.VKIDSDK;
 
             VKID.Config.init({
@@ -217,13 +214,15 @@
                 redirectUrl: REDIRECT_URI,
                 responseMode: VKID.ConfigResponseMode.Callback,
                 source: VKID.ConfigSource.LOWCODE,
-                scope: '', // Можно добавить права, например 'email'
+                scope: '',
             });
 
-            // Создаём кнопку One Tap
-            const oneTap = new VKID.OneTap();
+            // Удаляем старые кнопки (если есть)
+            vkContainer.innerHTML = '';
+            vkContainerCenter.innerHTML = '';
 
-            // Рендерим в контейнер в шапке
+            // === КНОПКА В ШАПКЕ ===
+            const oneTap = new VKID.OneTap();
             oneTap.render({
                 container: vkContainer,
                 showAlternativeLogin: true,
@@ -235,31 +234,14 @@
             })
             .on(VKID.WidgetEvents.ERROR, function(error) {
                 console.error('VK OneTap Error:', error);
-                showToast('Ошибка авторизации: ' + (error.message || 'неизвестная ошибка'));
+                showToast('Ошибка авторизации');
             })
             .on(VKID.OneTapInternalEvents.LOGIN_SUCCESS, function(payload) {
-                const code = payload.code;
-                const deviceId = payload.device_id;
-
-                VKID.Auth.exchangeCode(code, deviceId)
-                    .then(function(data) {
-                        // Успешный вход
-                        const user = {
-                            id: data.user_id || data.id || 'vk_' + Date.now(),
-                            name: data.first_name + ' ' + data.last_name || 'Пользователь ВК',
-                            avatar: data.photo_50 || '',
-                        };
-                        handleVKLoginSuccess(user);
-                    })
-                    .catch(function(error) {
-                        console.error('Exchange code error:', error);
-                        showToast('Ошибка обмена кода');
-                    });
+                handleVKLogin(payload);
             });
+            oneTapInstance = oneTap;
 
-            vkOneTapInstance = oneTap;
-
-            // Также рендерим в центре (для неавторизованных)
+            // === КНОПКА В ЦЕНТРЕ ===
             const oneTapCenter = new VKID.OneTap();
             oneTapCenter.render({
                 container: vkContainerCenter,
@@ -274,35 +256,53 @@
                 console.error('VK OneTap Center Error:', error);
             })
             .on(VKID.OneTapInternalEvents.LOGIN_SUCCESS, function(payload) {
-                const code = payload.code;
-                const deviceId = payload.device_id;
-
-                VKID.Auth.exchangeCode(code, deviceId)
-                    .then(function(data) {
-                        const user = {
-                            id: data.user_id || data.id || 'vk_' + Date.now(),
-                            name: data.first_name + ' ' + data.last_name || 'Пользователь ВК',
-                            avatar: data.photo_50 || '',
-                        };
-                        handleVKLoginSuccess(user);
-                    })
-                    .catch(function(error) {
-                        console.error('Exchange code error:', error);
-                    });
+                handleVKLogin(payload);
             });
+            oneTapCenterInstance = oneTapCenter;
 
         } catch (error) {
             console.error('VK One Tap init error:', error);
+            // Повторная попытка через 2 секунды
+            setTimeout(renderVKButtons, 2000);
         }
     }
 
-    // ===== ОБРАБОТКА УСПЕШНОГО ВХОДА =====
-    function handleVKLoginSuccess(user) {
-        currentUser = user;
-        setUserInfo(user.id, user.name, user.avatar);
-        myVotes = loadUserVotes(user.id) || {};
-        renderAll();
-        showToast(`Привет, ${user.name}!`);
+    // ===== ОБРАБОТКА ВХОДА ЧЕРЕЗ ВК =====
+    function handleVKLogin(payload) {
+        const code = payload.code;
+        const deviceId = payload.device_id;
+
+        if (!window.VKIDSDK) {
+            showToast('Ошибка: SDK не загружен');
+            return;
+        }
+
+        window.VKIDSDK.Auth.exchangeCode(code, deviceId)
+            .then(function(data) {
+                // Получаем данные пользователя
+                const userId = data.user_id || data.id || 'vk_' + Date.now();
+                const firstName = data.first_name || '';
+                const lastName = data.last_name || '';
+                const fullName = firstName + ' ' + lastName || 'Пользователь ВК';
+                const avatarUrl = data.photo_50 || '';
+
+                const user = {
+                    id: userId,
+                    name: fullName.trim(),
+                    avatar: avatarUrl,
+                };
+
+                currentUser = user;
+                setUserInfo(user.id, user.name, user.avatar);
+                localStorage.setItem('football_current_user', JSON.stringify(user));
+                myVotes = loadUserVotes(user.id) || {};
+                renderAll();
+                showToast(`Привет, ${user.name}!`);
+            })
+            .catch(function(error) {
+                console.error('Exchange code error:', error);
+                showToast('Ошибка входа: ' + (error.message || 'неизвестная ошибка'));
+            });
     }
 
     // ===== ТЕСТОВАЯ АВТОРИЗАЦИЯ =====
@@ -318,6 +318,7 @@
             avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=4f46e5&color=fff&size=50`
         };
         setUserInfo(userId, name, currentUser.avatar);
+        localStorage.setItem('football_current_user', JSON.stringify(currentUser));
         myVotes = loadUserVotes(userId) || {};
         renderAll();
         showToast(`Привет, ${name}! (тестовый режим)`);
@@ -328,9 +329,13 @@
             saveUserVotes(currentUser.id, myVotes);
         }
         currentUser = null;
+        localStorage.removeItem('football_current_user');
         myVotes = {};
         renderAll();
         showToast('Вы вышли');
+        
+        // Пересоздаём кнопки VK
+        setTimeout(renderVKButtons, 500);
     }
 
     // ===== РЕНДЕРИНГ =====
@@ -449,10 +454,8 @@
     }
 
     function renderAll() {
-        const authButtons = $('#authButtons');
-        
         if (currentUser) {
-            // Скрываем кнопку VK, показываем профиль
+            // Скрываем кнопки VK, показываем профиль
             vkContainer.style.display = 'none';
             vkContainerCenter.style.display = 'none';
             unauthSection.classList.add('hidden');
@@ -465,16 +468,16 @@
                 avatar.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser.name)}&background=4f46e5&color=fff&size=50`;
             }
         } else {
-            // Показываем кнопку VK
-            vkContainer.style.display = 'block';
-            vkContainerCenter.style.display = 'block';
+            // Показываем кнопки VK
+            vkContainer.style.display = 'flex';
+            vkContainerCenter.style.display = 'flex';
             unauthSection.classList.remove('hidden');
             pollSection.classList.add('hidden');
             profile.classList.add('hidden');
             
-            // Инициализируем One Tap, если ещё не инициализирован
-            if (!vkOneTapInstance) {
-                setTimeout(initVKOneTap, 500);
+            // Пересоздаём кнопки, если они ещё не созданы
+            if (!oneTapInstance) {
+                setTimeout(renderVKButtons, 300);
             }
         }
 
@@ -500,7 +503,7 @@
 
     // ===== ИНИЦИАЛИЗАЦИЯ =====
     function init() {
-        // Обработчики
+        // Обработчики событий
         document.addEventListener('click', (e) => {
             if (e.target.id === 'devLoginBtn') loginDev();
             if (e.target.id === 'logoutBtn') logout();
@@ -511,43 +514,31 @@
             }
         });
 
-        // Проверяем, есть ли уже авторизованный пользователь в localStorage
+        // Проверяем сохранённого пользователя
         const savedUser = localStorage.getItem('football_current_user');
         if (savedUser) {
             try {
                 const user = JSON.parse(savedUser);
-                currentUser = user;
-                myVotes = loadUserVotes(user.id) || {};
-                renderAll();
+                // Проверяем, что пользователь есть в базе
+                const info = getUserInfo(user.id);
+                if (info) {
+                    currentUser = user;
+                    myVotes = loadUserVotes(user.id) || {};
+                    renderAll();
+                } else {
+                    localStorage.removeItem('football_current_user');
+                    renderAll();
+                    renderVKButtons();
+                }
             } catch (e) {
                 localStorage.removeItem('football_current_user');
+                renderAll();
+                renderVKButtons();
             }
         } else {
             renderAll();
+            renderVKButtons();
         }
-
-        // Сохраняем пользователя при входе
-        const originalHandle = handleVKLoginSuccess;
-        handleVKLoginSuccess = function(user) {
-            originalHandle(user);
-            localStorage.setItem('football_current_user', JSON.stringify(user));
-        };
-
-        // Сохраняем при тестовом входе
-        const originalDev = loginDev;
-        loginDev = function() {
-            originalDev();
-            if (currentUser) {
-                localStorage.setItem('football_current_user', JSON.stringify(currentUser));
-            }
-        };
-
-        // Очищаем при выходе
-        const originalLogout = logout;
-        logout = function() {
-            originalLogout();
-            localStorage.removeItem('football_current_user');
-        };
     }
 
     document.addEventListener('DOMContentLoaded', init);
