@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Футбольный опросник</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: system-ui, sans-serif; background: #f0f4f8; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .container { max-width: 800px; width: 100%; background: white; border-radius: 24px; padding: 32px; box-shadow: 0 8px 30px rgba(0,0,0,0.1); }
+        h1 { font-size: 28px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
+        .subtitle { color: #64748b; margin-bottom: 24px; }
+        .btn { background: #4f46e5; color: white; border: none; padding: 10px 24px; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; gap: 8px; }
+        .btn:hover { background: #4338ca; transform: translateY(-1px); }
+        .btn-outline { background: transparent; color: #4f46e5; border: 2px solid #4f46e5; }
+        .btn-outline:hover { background: #eef2ff; transform: none; }
+        .btn-danger { background: #ef4444; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-success { background: #22c55e; }
+        .btn-success:hover { background: #16a34a; }
+        .btn-teal { background: #14b8a6; }
+        .btn-teal:hover { background: #0d9488; }
+        .auth-section { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 40px 0; text-align: center; }
+        .user-badge { display: flex; align-items: center; gap: 12px; background: #f1f5f9; padding: 10px 18px; border-radius: 100px; margin-bottom: 16px; }
+        .user-badge img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; }
+        .hidden { display: none !important; }
+        .poll-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 20px 0; }
+        .poll-item { display: flex; align-items: center; gap: 16px; background: #f8fafc; padding: 12px 16px; border-radius: 12px; border: 2px solid #e2e8f0; transition: 0.15s; cursor: pointer; flex-wrap: wrap; }
+        .poll-item:hover { border-color: #4f46e5; background: #f1f5ff; }
+        .poll-item.selected { border-color: #4f46e5; background: #eef2ff; }
+        .poll-item .day { font-weight: 600; min-width: 100px; }
+        .poll-item .count { margin-left: auto; background: #e2e8f0; padding: 4px 12px; border-radius: 100px; font-size: 14px; color: #1e293b; }
+        .poll-item.selected .count { background: #4f46e5; color: white; }
+        .names-list { font-size: 14px; color: #475569; }
+        .chart-wrapper { margin: 24px 0; height: 200px; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; }
+        .stat-card { background: #f8fafc; padding: 16px; border-radius: 12px; text-align: center; }
+        .stat-card .number { font-size: 32px; font-weight: 700; color: #4f46e5; }
+        .stat-card .label { font-size: 14px; color: #64748b; }
+        .flex { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+        .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+        .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #1e293b; color: white; padding: 12px 24px; border-radius: 12px; opacity: 0; transition: 0.3s; pointer-events: none; font-weight: 500; z-index: 1000; }
+        .toast.show { opacity: 1; }
+        .dev-mode { background: #fef9c3; border: 2px dashed #eab308; border-radius: 12px; padding: 16px; margin-bottom: 20px; }
+        .dev-mode label { display: block; margin-bottom: 8px; font-weight: 600; color: #854d0e; }
+        .dev-mode input { padding: 8px 12px; border-radius: 8px; border: 1px solid #eab308; font-size: 14px; width: 200px; }
+        .warning-banner { background: #fee2e2; border: 1px solid #f87171; border-radius: 12px; padding: 12px 16px; margin-bottom: 16px; color: #991b1b; font-size: 14px; }
+        .warning-banner strong { display: block; margin-bottom: 4px; }
+        @media (max-width: 500px) { .container { padding: 20px; } .poll-item .day { min-width: 70px; } .stats-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+
+<div class="container" id="app">
+    <div class="flex-between">
+        <div>
+            <h1>⚽ Футбольный матч</h1>
+            <div class="subtitle">Выбери дни, когда сможешь играть</div>
+        </div>
+        <div id="authButtons">
+            <button class="btn" id="loginBtnHeader">🔑 Войти через ВК</button>
+        </div>
+    </div>
+
+    <!-- Предупреждение о настройке -->
+    <div class="warning-banner" id="configWarning">
+        <strong>⚠️ Настройка VK приложения</strong>
+        Замените <code>VK_CLIENT_ID</code> в коде на ID вашего приложения ВК 
+        (сейчас стоит <code>12345678</code>)
+    </div>
+
+    <!-- Режим разработчика -->
+    <div class="dev-mode" id="devMode">
+        <label>🧪 Режим разработчика (для тестирования)</label>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <input type="text" id="devUserId" placeholder="ID" value="test_1" style="width:120px;" />
+            <input type="text" id="devUserName" placeholder="Имя" value="Тестовый пользователь" style="width:180px;" />
+            <button class="btn btn-teal" id="devLoginBtn" style="padding:8px 16px; font-size:14px;">Войти как тестовый</button>
+        </div>
+        <div style="margin-top:8px; font-size:13px; color:#854d0e;">
+            ⚠️ Используйте для тестирования, пока не настроили приложение ВК
+        </div>
+    </div>
+
+    <div id="profile" class="hidden">
+        <div class="user-badge">
+            <img id="avatar" src="" alt="avatar" />
+            <span id="userName">Имя</span>
+            <button class="btn btn-danger btn-outline" id="logoutBtn" style="padding:4px 12px;font-size:13px;">Выйти</button>
+        </div>
+    </div>
+
+    <div id="pollSection" class="hidden">
+        <div class="poll-grid" id="pollGrid"></div>
+        <div class="flex">
+            <button class="btn btn-success" id="saveBtn">💾 Сохранить мой выбор</button>
+            <button class="btn btn-outline" id="resetMyVotesBtn">🗑️ Сбросить мои голоса</button>
+        </div>
+        <hr style="margin:24px 0;border-color:#e2e8f0;" />
+        <div class="flex-between">
+            <h3>📊 Статистика</h3>
+            <button class="btn btn-outline" id="clearAllBtn" style="font-size:13px;padding:6px 16px;">Очистить все данные</button>
+        </div>
+        <div class="stats-grid">
+            <div class="stat-card"><div class="number" id="totalUsers">0</div><div class="label">Всего участников</div></div>
+            <div class="stat-card"><div class="number" id="totalVotes">0</div><div class="label">Всего голосов</div></div>
+        </div>
+        <div class="chart-wrapper"><canvas id="chart"></canvas></div>
+        <div id="detailsContainer"></div>
+    </div>
+
+    <div id="unauthSection">
+        <div class="auth-section">
+            <p style="font-size:18px;color:#475569;">👋 Войдите через ВК, чтобы участвовать в опросе</p>
+            <button class="btn" id="loginBtn2">🔑 Войти через ВК</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function() {
+    'use strict';
+
+    // ===== КОНФИГ =====
+    // ⚠️ ЗАМЕНИТЕ 12345678 НА РЕАЛЬНЫЙ ID ВАШЕГО ПРИЛОЖЕНИЯ ВК
+    const VK_CLIENT_ID = 12345678;
+    
+    // Автоматически определяем адрес текущей страницы
+    const REDIRECT_URI = window.location.origin + window.location.pathname;
+    const VK_AUTH_URL = `https://oauth.vk.com/authorize?client_id=${VK_CLIENT_ID}&display=page&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=friends&response_type=token&v=5.131`;
+
+    const DAYS = [
+        { id: 'mon', label: 'Понедельник', date: '10 июня' },
+        { id: 'tue', label: 'Вторник', date: '11 июня' },
+        { id: 'wed', label: 'Среда', date: '12 июня' },
+        { id: 'thu', label: 'Четверг', date: '13 июня' },
+        { id: 'fri', label: 'Пятница', date: '14 июня' },
+        { id: 'sat', label: 'Суббота', date: '15 июня' },
+        { id: 'sun', label: 'Воскресенье', date: '16 июня' },
+    ];
+
+    // ===== СОСТОЯНИЕ =====
+    let currentUser = null;
+    let myVotes = {};
+    let chartInstance = null;
+
+    const $ = (sel) => document.querySelector(sel);
+    const pollGrid = $('#pollGrid');
+    const unauthSection = $('#unauthSection');
+    const pollSection = $('#pollSection');
+    const profile = $('#profile');
+    const userName = $('#userName');
+    const avatar = $('#avatar');
+    const totalUsers = $('#totalUsers');
+    const totalVotes = $('#totalVotes');
+    const detailsContainer = $('#detailsContainer');
+    const toast = $('#toast');
+    const configWarning = $('#configWarning');
+    let toastTimer = null;
+
+    // Показываем предупреждение, если ID не изменён
+    if (VK_CLIENT_ID === 12345678) {
+        configWarning.style.display = 'block';
+    } else {
+        configWarning.style.display = 'none';
+    }
+
+    // ===== ХРАНИЛИЩЕ =====
+    function loadAllVotes() {
+        try { return JSON.parse(localStorage.getItem('football_votes_all')) || {}; } catch { return {}; }
+    }
+    function saveAllVotes(votes) {
+        localStorage.setItem('football_votes_all', JSON.stringify(votes));
+    }
+    function loadUserVotes(userId) {
+        const all = loadAllVotes();
+        return all[userId] || {};
+    }
+    function saveUserVotes(userId, votes) {
+        const all = loadAllVotes();
+        all[userId] = votes;
+        saveAllVotes(all);
+    }
+
+    function loadUsers() {
+        try { return JSON.parse(localStorage.getItem('football_users')) || {}; } catch { return {}; }
+    }
+    function saveUsers(users) {
+        localStorage.setItem('football_users', JSON.stringify(users));
+    }
+    function getUserInfo(userId) {
+        const users = loadUsers();
+        return users[userId] || null;
+    }
+    function setUserInfo(userId, name, avatarUrl) {
+        const users = loadUsers();
+        users[userId] = { name, avatar: avatarUrl || '' };
+        saveUsers(users);
+    }
+
+    function clearAllData() {
+        localStorage.removeItem('football_votes_all');
+        localStorage.removeItem('football_users');
+        myVotes = {};
+        renderAll();
+        showToast('Все данные очищены');
+    }
+
+    function showToast(msg) {
+        toast.textContent = msg;
+        toast.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('show'), 2500);
+    }
+
+    // ===== АВТОРИЗАЦИЯ ЧЕРЕЗ ВК =====
+    function parseVKToken() {
+        const hash = window.location.hash.substring(1);
+        const params = new URLSearchParams(hash);
+        const token = params.get('access_token');
+        const userId = params.get('user_id');
+        if (token && userId) return { token, userId };
+        return null;
+    }
+
+    async function fetchVKUser(token, userId) {
+        try {
+            const resp = await fetch(
+                `https://api.vk.com/method/users.get?user_id=${userId}&fields=photo_50&access_token=${token}&v=5.131`
+            );
+            const data = await resp.json();
+            if (data.response && data.response.length) {
+                const u = data.response[0];
+                return {
+                    id: u.id,
+                    name: `${u.first_name} ${u.last_name}`,
+                    avatar: u.photo_50 || '',
+                };
+            }
+        } catch (e) {
+            console.error('VK fetch error:', e);
+        }
+        return null;
+    }
+
+    async function loginVK() {
+        const parsed = parseVKToken();
+        if (parsed) {
+            const user = await fetchVKUser(parsed.token, parsed.userId);
+            if (user) {
+                currentUser = user;
+                setUserInfo(user.id, user.name, user.avatar);
+                myVotes = loadUserVotes(user.id) || {};
+                renderAll();
+                showToast(`Привет, ${user.name}!`);
+                window.history.replaceState(null, '', window.location.pathname);
+                return;
+            }
+        }
+        window.location.href = VK_AUTH_URL;
+    }
+
+    // ===== ТЕСТОВАЯ АВТОРИЗАЦИЯ =====
+    function loginDev() {
+        const idInput = $('#devUserId');
+        const nameInput = $('#devUserName');
+        const userId = idInput.value.trim() || 'test_1';
+        const name = nameInput.value.trim() || 'Тестовый пользователь';
+        
+        currentUser = { 
+            id: userId, 
+            name: name,
+            avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=4f46e5&color=fff&size=50`
+        };
+        setUserInfo(userId, name, currentUser.avatar);
+        myVotes = loadUserVotes(userId) || {};
+        renderAll();
+        showToast(`Привет, ${name}! (тестовый режим)`);
+    }
+
+    function logout() {
+        if (currentUser) {
+            saveUserVotes(currentUser.id, myVotes);
+        }
+        currentUser = null;
+        myVotes = {};
+        renderAll();
+        showToast('Вы вышли');
+    }
+
+    // ===== РЕНДЕРИНГ =====
+    function renderPoll() {
+        const all = loadAllVotes();
+        const counts = {};
+        const usersByDay = {};
+        DAYS.forEach(d => { counts[d.id] = 0; usersByDay[d.id] = []; });
+
+        for (const [userId, votes] of Object.entries(all)) {
+            const userInfo = getUserInfo(userId);
+            const name = userInfo ? userInfo.name : userId.replace('user_', '');
+            for (const [dayId, val] of Object.entries(votes)) {
+                if (val && counts[dayId] !== undefined) {
+                    counts[dayId]++;
+                    usersByDay[dayId].push(name);
+                }
+            }
+        }
+
+        pollGrid.innerHTML = '';
+        DAYS.forEach(day => {
+            const div = document.createElement('div');
+            div.className = 'poll-item';
+            if (myVotes[day.id]) div.classList.add('selected');
+
+            const dayLabel = document.createElement('span');
+            dayLabel.className = 'day';
+            dayLabel.textContent = `${day.label} (${day.date})`;
+
+            const namesSpan = document.createElement('span');
+            namesSpan.className = 'names-list';
+            const names = usersByDay[day.id] || [];
+            if (names.length) {
+                const display = names.slice(0,3).join(', ');
+                namesSpan.textContent = `🙋 ${display}${names.length > 3 ? ` +${names.length-3}` : ''}`;
+            } else {
+                namesSpan.textContent = '—';
+            }
+
+            const countSpan = document.createElement('span');
+            countSpan.className = 'count';
+            countSpan.textContent = counts[day.id] || 0;
+
+            div.appendChild(dayLabel);
+            div.appendChild(namesSpan);
+            div.appendChild(countSpan);
+
+            div.addEventListener('click', () => {
+                if (!currentUser) {
+                    showToast('Войдите, чтобы голосовать');
+                    return;
+                }
+                if (myVotes[day.id]) {
+                    delete myVotes[day.id];
+                } else {
+                    myVotes[day.id] = true;
+                }
+                renderAll();
+            });
+
+            pollGrid.appendChild(div);
+        });
+
+        const uniqueUsers = Object.keys(all).length;
+        totalUsers.textContent = uniqueUsers;
+        let total = 0;
+        for (const u of Object.values(all)) {
+            total += Object.keys(u).length;
+        }
+        totalVotes.textContent = total;
+
+        let detailsHtml = '<div style="margin-top:12px;font-size:14px;color:#334155;"><strong>Кто когда:</strong><br/>';
+        DAYS.forEach(day => {
+            const names = usersByDay[day.id] || [];
+            if (names.length) {
+                detailsHtml += `<span style="display:inline-block;background:#f1f5f9;padding:4px 12px;border-radius:100px;margin:4px 4px 0 0;">${day.label}: ${names.join(', ')}</span> `;
+            }
+        });
+        detailsHtml += '</div>';
+        detailsContainer.innerHTML = detailsHtml;
+
+        renderChart(counts);
+    }
+
+    function renderChart(counts) {
+        const ctx = document.getElementById('chart');
+        if (!ctx) return;
+        if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+        const labels = DAYS.map(d => d.label);
+        const data = DAYS.map(d => counts[d.id] || 0);
+
+        chartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Количество голосов',
+                    data: data,
+                    backgroundColor: 'rgba(79,70,229,0.7)',
+                    borderColor: '#4f46e5',
+                    borderWidth: 2,
+                    borderRadius: 6,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 12 } } },
+                    x: { ticks: { font: { size: 12 } } }
+                }
+            }
+        });
+    }
+
+    function renderAll() {
+        const authButtons = $('#authButtons');
+        
+        if (currentUser) {
+            authButtons.innerHTML = '';
+            unauthSection.classList.add('hidden');
+            pollSection.classList.remove('hidden');
+            profile.classList.remove('hidden');
+            userName.textContent = currentUser.name;
+            if (currentUser.avatar) {
+                avatar.src = currentUser.avatar;
+            } else {
+                avatar.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser.name)}&background=4f46e5&color=fff&size=50`;
+            }
+        } else {
+            authButtons.innerHTML = `<button class="btn" id="loginBtnHeader">🔑 Войти через ВК</button>`;
+            document.getElementById('loginBtnHeader').addEventListener('click', loginVK);
+            unauthSection.classList.remove('hidden');
+            pollSection.classList.add('hidden');
+            profile.classList.add('hidden');
+        }
+
+        myVotes = currentUser ? loadUserVotes(currentUser.id) : {};
+        renderPoll();
+    }
+
+    // ===== ДЕЙСТВИЯ =====
+    function saveMyVotes() {
+        if (!currentUser) { showToast('Войдите, чтобы сохранить'); return; }
+        saveUserVotes(currentUser.id, myVotes);
+        renderPoll();
+        showToast('Ваш выбор сохранён!');
+    }
+
+    function resetMyVotes() {
+        if (!currentUser) { showToast('Войдите, чтобы сбросить'); return; }
+        myVotes = {};
+        saveUserVotes(currentUser.id, {});
+        renderPoll();
+        showToast('Ваши голоса сброшены');
+    }
+
+    // ===== ИНИЦИАЛИЗАЦИЯ =====
+    function init() {
+        document.addEventListener('click', (e) => {
+            if (e.target.id === 'loginBtn2') loginVK();
+            if (e.target.id === 'devLoginBtn') loginDev();
+            if (e.target.id === 'logoutBtn') logout();
+            if (e.target.id === 'saveBtn') saveMyVotes();
+            if (e.target.id === 'resetMyVotesBtn') resetMyVotes();
+            if (e.target.id === 'clearAllBtn') {
+                if (confirm('Удалить все голоса всех пользователей?')) clearAllData();
+            }
+        });
+
+        const parsed = parseVKToken();
+        if (parsed) {
+            fetchVKUser(parsed.token, parsed.userId).then(user => {
+                if (user) {
+                    currentUser = user;
+                    setUserInfo(user.id, user.name, user.avatar);
+                    myVotes = loadUserVotes(user.id) || {};
+                    renderAll();
+                    showToast(`Привет, ${user.name}!`);
+                    window.history.replaceState(null, '', window.location.pathname);
+                } else {
+                    renderAll();
+                }
+            });
+        } else {
+            renderAll();
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
+</body>
+</html>
