@@ -113,10 +113,11 @@
     'use strict';
 
     // ===== КОНФИГ =====
-    const VK_APP_ID = 54715280;
+    // НОВЫЙ ID ПРИЛОЖЕНИЯ
+    const VK_APP_ID = 54715324;
     // Жестко прописываем правильный адрес
     const REDIRECT_URI = 'https://feduk11.github.io/brazilsystem/';
-    // ИСПРАВЛЕННЫЙ URL: используем vk.ru и экранируем redirect_uri
+    // ПРАВИЛЬНЫЙ ДОМЕН: vk.ru
     const VK_AUTH_URL = `https://oauth.vk.ru/authorize?client_id=${VK_APP_ID}&display=page&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=friends&response_type=token&v=5.131`;
 
     const DAYS = [
