@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8" />
@@ -114,7 +114,8 @@
 
     // ===== КОНФИГ =====
     const VK_APP_ID = 54715280;
-    const REDIRECT_URI = window.location.origin + window.location.pathname;
+    // ⚠️ ЖЁСТКО ПРОПИСЫВАЕМ АДРЕС, КОТОРЫЙ СОВПАДАЕТ С НАСТРОЙКАМИ ПРИЛОЖЕНИЯ
+    const REDIRECT_URI = 'https://feduk11.github.io/brazilsystem/';
     const VK_AUTH_URL = `https://oauth.vk.com/authorize?client_id=${VK_APP_ID}&display=page&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=friends&response_type=token&v=5.131`;
 
     const DAYS = [
@@ -193,7 +194,7 @@
         toastTimer = setTimeout(() => toast.classList.remove('show'), 2500);
     }
 
-    // ===== АВТОРИЗАЦИЯ ЧЕРЕЗ ВК (РЕДИРЕКТ) =====
+    // ===== АВТОРИЗАЦИЯ =====
     function parseVKToken() {
         const hash = window.location.hash.substring(1);
         const params = new URLSearchParams(hash);
