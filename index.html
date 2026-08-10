@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Футбольный опросник</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script src="https://unpkg.com/@vkid/sdk@<3.0.0/dist-sdk/umd/index.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: system-ui, sans-serif; background: #f0f4f8; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
@@ -46,8 +45,8 @@
         .dev-mode { background: #fef9c3; border: 2px dashed #eab308; border-radius: 12px; padding: 16px; margin-bottom: 20px; }
         .dev-mode label { display: block; margin-bottom: 8px; font-weight: 600; color: #854d0e; }
         .dev-mode input { padding: 8px 12px; border-radius: 8px; border: 1px solid #eab308; font-size: 14px; width: 200px; }
-        .vk-button-container { min-height: 50px; display: flex; justify-content: center; align-items: center; }
-        .vk-button-container iframe { border: none; }
+        .vk-btn { background: #2787F5; color: white; border: none; padding: 12px 32px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        .vk-btn:hover { background: #1a6ec9; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(39, 135, 245, 0.4); }
         @media (max-width: 500px) { .container { padding: 20px; } .poll-item .day { min-width: 70px; } .stats-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -60,15 +59,14 @@
             <div class="subtitle">Выбери дни, когда сможешь играть</div>
         </div>
         <div id="authButtons">
-            <div class="vk-button-container" id="vkOneTapContainer"></div>
+            <button class="vk-btn" id="loginBtn">🔑 Войти через ВК</button>
         </div>
     </div>
 
     <div class="dev-mode" id="devMode">
         <label>🧪 Режим разработчика (для тестирования без ВК)</label>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-            <input type="text" id="devUserId" placeholder="ID" value="test_1" style="width:120px;" />
-            <input type="text" id="devUserName" placeholder="Имя" value="Тестовый пользователь" style="width:180px;" />
+            <input type="text" id="devUserName" placeholder="Имя" value="Тестовый пользователь" style="width:200px;" />
             <button class="btn btn-teal" id="devLoginBtn" style="padding:8px 16px; font-size:14px;">Войти как тестовый</button>
         </div>
     </div>
@@ -103,7 +101,7 @@
     <div id="unauthSection">
         <div class="auth-section">
             <p style="font-size:18px;color:#475569;">👋 Войдите через ВК, чтобы участвовать в опросе</p>
-            <div class="vk-button-container" id="vkOneTapContainerCenter"></div>
+            <button class="vk-btn" id="loginBtn2">🔑 Войти через ВК</button>
         </div>
     </div>
 </div>
@@ -115,9 +113,9 @@
     'use strict';
 
     // ===== КОНФИГ =====
-    // ⚠️ ВАШ НОВЫЙ ID ПРИЛОЖЕНИЯ
-    const VK_APP_ID = 54715280;  // 👈 ЗДЕСЬ НОВЫЙ ID
+    const VK_APP_ID = 54715280;
     const REDIRECT_URI = window.location.origin + window.location.pathname;
+    const VK_AUTH_URL = `https://oauth.vk.com/authorize?client_id=${VK_APP_ID}&display=page&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=friends&response_type=token&v=5.131`;
 
     const DAYS = [
         { id: 'mon', label: 'Понедельник', date: '10 июня' },
@@ -132,8 +130,6 @@
     let currentUser = null;
     let myVotes = {};
     let chartInstance = null;
-    let oneTapInstance = null;
-    let oneTapCenterInstance = null;
 
     const $ = (sel) => document.querySelector(sel);
     const pollGrid = $('#pollGrid');
@@ -146,8 +142,6 @@
     const totalVotes = $('#totalVotes');
     const detailsContainer = $('#detailsContainer');
     const toast = $('#toast');
-    const vkContainer = $('#vkOneTapContainer');
-    const vkContainerCenter = $('#vkOneTapContainerCenter');
     let toastTimer = null;
 
     // ===== ХРАНИЛИЩЕ =====
@@ -199,117 +193,45 @@
         toastTimer = setTimeout(() => toast.classList.remove('show'), 2500);
     }
 
-    // ===== ИНИЦИАЛИЗАЦИЯ КНОПКИ VK =====
-    function renderVKButtons() {
-        if (!window.VKIDSDK) {
-            console.warn('VKIDSDK не загружен, повторная попытка через 1с');
-            setTimeout(renderVKButtons, 1000);
-            return;
-        }
-
-        try {
-            const VKID = window.VKIDSDK;
-
-            VKID.Config.init({
-                app: VK_APP_ID,
-                redirectUrl: REDIRECT_URI,
-                responseMode: VKID.ConfigResponseMode.Callback,
-                source: VKID.ConfigSource.LOWCODE,
-                scope: '',
-            });
-
-            // Удаляем старые кнопки (если есть)
-            vkContainer.innerHTML = '';
-            vkContainerCenter.innerHTML = '';
-
-            // === КНОПКА В ШАПКЕ ===
-            const oneTap = new VKID.OneTap();
-            oneTap.render({
-                container: vkContainer,
-                showAlternativeLogin: true,
-                lang: 'ru',
-                buttonType: VKID.OneTapButtonTypes.PRIMARY,
-                buttonTheme: VKID.OneTapButtonThemes.LIGHT,
-                buttonSize: VKID.OneTapButtonSizes.LARGE,
-                buttonBorderRadius: 8,
-            })
-            .on(VKID.WidgetEvents.ERROR, function(error) {
-                console.error('VK OneTap Error:', error);
-                showToast('Ошибка авторизации');
-            })
-            .on(VKID.OneTapInternalEvents.LOGIN_SUCCESS, function(payload) {
-                handleVKLogin(payload);
-            });
-            oneTapInstance = oneTap;
-
-            // === КНОПКА В ЦЕНТРЕ ===
-            const oneTapCenter = new VKID.OneTap();
-            oneTapCenter.render({
-                container: vkContainerCenter,
-                showAlternativeLogin: true,
-                lang: 'ru',
-                buttonType: VKID.OneTapButtonTypes.PRIMARY,
-                buttonTheme: VKID.OneTapButtonThemes.LIGHT,
-                buttonSize: VKID.OneTapButtonSizes.LARGE,
-                buttonBorderRadius: 8,
-            })
-            .on(VKID.WidgetEvents.ERROR, function(error) {
-                console.error('VK OneTap Center Error:', error);
-            })
-            .on(VKID.OneTapInternalEvents.LOGIN_SUCCESS, function(payload) {
-                handleVKLogin(payload);
-            });
-            oneTapCenterInstance = oneTapCenter;
-
-        } catch (error) {
-            console.error('VK One Tap init error:', error);
-            setTimeout(renderVKButtons, 2000);
-        }
+    // ===== АВТОРИЗАЦИЯ ЧЕРЕЗ ВК (РЕДИРЕКТ) =====
+    function parseVKToken() {
+        const hash = window.location.hash.substring(1);
+        const params = new URLSearchParams(hash);
+        const token = params.get('access_token');
+        const userId = params.get('user_id');
+        if (token && userId) return { token, userId };
+        return null;
     }
 
-    // ===== ОБРАБОТКА ВХОДА ЧЕРЕЗ ВК =====
-    function handleVKLogin(payload) {
-        const code = payload.code;
-        const deviceId = payload.device_id;
-
-        if (!window.VKIDSDK) {
-            showToast('Ошибка: SDK не загружен');
-            return;
-        }
-
-        window.VKIDSDK.Auth.exchangeCode(code, deviceId)
-            .then(function(data) {
-                const userId = data.user_id || data.id || 'vk_' + Date.now();
-                const firstName = data.first_name || '';
-                const lastName = data.last_name || '';
-                const fullName = firstName + ' ' + lastName || 'Пользователь ВК';
-                const avatarUrl = data.photo_50 || '';
-
-                const user = {
-                    id: userId,
-                    name: fullName.trim(),
-                    avatar: avatarUrl,
+    async function fetchVKUser(token, userId) {
+        try {
+            const resp = await fetch(
+                `https://api.vk.com/method/users.get?user_id=${userId}&fields=photo_50&access_token=${token}&v=5.131`
+            );
+            const data = await resp.json();
+            if (data.response && data.response.length) {
+                const u = data.response[0];
+                return {
+                    id: u.id,
+                    name: `${u.first_name} ${u.last_name}`,
+                    avatar: u.photo_50 || '',
                 };
+            }
+        } catch (e) {
+            console.error('VK fetch error:', e);
+        }
+        return null;
+    }
 
-                currentUser = user;
-                setUserInfo(user.id, user.name, user.avatar);
-                localStorage.setItem('football_current_user', JSON.stringify(user));
-                myVotes = loadUserVotes(user.id) || {};
-                renderAll();
-                showToast(`Привет, ${user.name}!`);
-            })
-            .catch(function(error) {
-                console.error('Exchange code error:', error);
-                showToast('Ошибка входа: ' + (error.message || 'неизвестная ошибка'));
-            });
+    function loginVK() {
+        window.location.href = VK_AUTH_URL;
     }
 
     // ===== ТЕСТОВАЯ АВТОРИЗАЦИЯ =====
     function loginDev() {
-        const idInput = $('#devUserId');
         const nameInput = $('#devUserName');
-        const userId = idInput.value.trim() || 'test_1';
         const name = nameInput.value.trim() || 'Тестовый пользователь';
+        const userId = 'dev_' + name.toLowerCase().replace(/\s/g, '_') + '_' + Date.now();
         
         currentUser = { 
             id: userId, 
@@ -332,8 +254,6 @@
         myVotes = {};
         renderAll();
         showToast('Вы вышли');
-        
-        setTimeout(renderVKButtons, 500);
     }
 
     // ===== РЕНДЕРИНГ =====
@@ -453,8 +373,6 @@
 
     function renderAll() {
         if (currentUser) {
-            vkContainer.style.display = 'none';
-            vkContainerCenter.style.display = 'none';
             unauthSection.classList.add('hidden');
             pollSection.classList.remove('hidden');
             profile.classList.remove('hidden');
@@ -465,15 +383,9 @@
                 avatar.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser.name)}&background=4f46e5&color=fff&size=50`;
             }
         } else {
-            vkContainer.style.display = 'flex';
-            vkContainerCenter.style.display = 'flex';
             unauthSection.classList.remove('hidden');
             pollSection.classList.add('hidden');
             profile.classList.add('hidden');
-            
-            if (!oneTapInstance) {
-                setTimeout(renderVKButtons, 300);
-            }
         }
 
         myVotes = currentUser ? loadUserVotes(currentUser.id) : {};
@@ -498,7 +410,11 @@
 
     // ===== ИНИЦИАЛИЗАЦИЯ =====
     function init() {
+        // Обработчики кнопок
         document.addEventListener('click', (e) => {
+            if (e.target.id === 'loginBtn' || e.target.id === 'loginBtn2') {
+                loginVK();
+            }
             if (e.target.id === 'devLoginBtn') loginDev();
             if (e.target.id === 'logoutBtn') logout();
             if (e.target.id === 'saveBtn') saveMyVotes();
@@ -508,28 +424,44 @@
             }
         });
 
-        const savedUser = localStorage.getItem('football_current_user');
-        if (savedUser) {
-            try {
-                const user = JSON.parse(savedUser);
-                const info = getUserInfo(user.id);
-                if (info) {
+        // Проверяем токен при загрузке
+        const parsed = parseVKToken();
+        if (parsed) {
+            fetchVKUser(parsed.token, parsed.userId).then(user => {
+                if (user) {
                     currentUser = user;
+                    setUserInfo(user.id, user.name, user.avatar);
+                    localStorage.setItem('football_current_user', JSON.stringify(user));
                     myVotes = loadUserVotes(user.id) || {};
                     renderAll();
+                    showToast(`Привет, ${user.name}!`);
+                    window.history.replaceState(null, '', window.location.pathname);
                 } else {
+                    renderAll();
+                }
+            });
+        } else {
+            // Проверяем сохранённого пользователя
+            const savedUser = localStorage.getItem('football_current_user');
+            if (savedUser) {
+                try {
+                    const user = JSON.parse(savedUser);
+                    const info = getUserInfo(user.id);
+                    if (info) {
+                        currentUser = user;
+                        myVotes = loadUserVotes(user.id) || {};
+                        renderAll();
+                    } else {
+                        localStorage.removeItem('football_current_user');
+                        renderAll();
+                    }
+                } catch (e) {
                     localStorage.removeItem('football_current_user');
                     renderAll();
-                    renderVKButtons();
                 }
-            } catch (e) {
-                localStorage.removeItem('football_current_user');
+            } else {
                 renderAll();
-                renderVKButtons();
             }
-        } else {
-            renderAll();
-            renderVKButtons();
         }
     }
 
